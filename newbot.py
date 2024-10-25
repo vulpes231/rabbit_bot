@@ -4,6 +4,7 @@ import logging
 import firebase_admin
 from firebase_admin import credentials, db
 from aiogram import Bot, Dispatcher, executor, types
+from command import start, display_profile, add_product, display_categories, display_products_by_category, handle_user_selection
 
 # Load environment credentials
 load_dotenv()
@@ -27,44 +28,39 @@ cred = credentials.Certificate("rabbitcred.json")
 firebase_admin.initialize_app(
     cred, {"databaseURL": DATABASE_URL})
 
+
 ref = db.reference("/")
 
 # Initialize bot
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 
-# User command handler for /start
+# User commands
 
+# /start
+dp.register_message_handler(
+    lambda message: start(message, ref), commands=['start']
+)
 
-@dp.message_handler(commands=['start'])
-async def start(message: types.Message):
-    user_id = message.chat.id
-    username = str(user_id)
+# Check profile
+dp.register_message_handler(
+    display_profile, lambda message: message.text == "Profile"
+)
 
-    # Check if user profile exists
-    user_ref = ref.child(f"users/{username}")
-    user_data = user_ref.get()
+# Add product
+dp.register_message_handler(
+    lambda message: add_product(message, ADMINS), commands=['addproduct']
+)
 
-    if user_data is None:
-        # Create a new user profile
-        user_ref.set({
-            'username': username,
-            'balance': 0
-        })
-        balance = 0
-    else:
-        balance = user_data['balance']
+# Display categories
+dp.register_message_handler(
+    display_categories, lambda message: message.text == "Products"
+)
 
-    # Send welcome message
-    welcome_text = f"Welcome, {username}! Your balance is: {balance}."
-    await message.reply(welcome_text, reply_markup=await get_keyboard())
-
-
-async def get_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    buttons = ["Profile", "Admin", "Fund Wallet", "Products"]
-    keyboard.add(*buttons)
-    return keyboard
+# Handle user selection (category selection and product display)
+dp.register_message_handler(
+    handle_user_selection, content_types=['text']
+)
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
