@@ -4,7 +4,7 @@ import logging
 import firebase_admin
 from firebase_admin import credentials, db
 from aiogram import Bot, Dispatcher, executor, types
-from command import start, display_profile, add_product, display_categories, display_products_by_category, handle_user_selection
+from command import start, display_profile, add_product, display_categories, display_products_by_category,  handle_category_selection, process_order, get_user_orders, show_faqs_tips
 
 # Load environment credentials
 load_dotenv()
@@ -58,8 +58,20 @@ dp.register_message_handler(
 )
 
 # Handle user selection (category selection and product display)
+dp.register_callback_query_handler(
+    handle_category_selection, lambda c: c.data.startswith("category_"))
+
+# Register the order processing callback
+dp.register_callback_query_handler(
+    process_order, lambda c: c.data.startswith("order_"))
+
+
 dp.register_message_handler(
-    handle_user_selection, content_types=['text']
+    get_user_orders, lambda message: message.text == "Orders"
+)
+
+dp.register_message_handler(
+    show_faqs_tips, lambda message: message.text == "FAQs"
 )
 
 if __name__ == '__main__':
