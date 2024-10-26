@@ -4,7 +4,7 @@ import logging
 import firebase_admin
 from firebase_admin import credentials, db
 from aiogram import Bot, Dispatcher, executor, types
-from command import start, display_profile, add_product, display_categories, display_products_by_category,  handle_category_selection, process_order, get_user_orders, show_faqs_tips
+from command import start, display_profile, add_product, display_categories, display_products_by_category,  handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method
 
 # Load environment credentials
 load_dotenv()
@@ -73,6 +73,25 @@ dp.register_message_handler(
 dp.register_message_handler(
     show_faqs_tips, lambda message: message.text == "FAQs"
 )
+
+dp.register_message_handler(
+    fund_wallet, lambda message: message.text == "Fund Wallet"
+)
+
+# Register the callback query handler for manual funding
+dp.register_callback_query_handler(
+    handle_manual_method, lambda c: c.data == "fund_manual"
+)
+# Register the callback query handler for manual funding
+dp.register_callback_query_handler(
+    handle_auto_method, lambda c: c.data == "fund_auto"
+)
+
+dp.register_message_handler(
+    lambda message: show_help(
+        message, ADMINS), lambda message: message.text == "Support"
+)
+
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)

@@ -278,3 +278,71 @@ async def show_faqs_tips(message: types.Message):
 
     # Send the message
     await message.reply(faq_message, parse_mode=types.ParseMode.HTML)
+
+
+async def show_help(message: types.Message, admins):
+    # Create inline buttons for each admin
+    buttons = []
+    for admin in admins:
+        # Create a button that links to the admin's profile (using their username)
+        buttons.append(types.InlineKeyboardButton(
+            text=admin, url=f"https://t.me/{admin}"))
+
+    # Create an inline keyboard markup
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(*buttons)
+
+    # Send the reply with the inline keyboard
+    await message.reply("You need human help? Contact any of our admins:", reply_markup=keyboard)
+
+
+async def fund_wallet(message: types.Message):
+    # Create inline buttons for Automatic and Manual funding
+    buttons = [
+        types.InlineKeyboardButton(
+            text="Automatic deposit", callback_data="fund_auto"),
+        types.InlineKeyboardButton(
+            text="Manual deposit", callback_data="fund_manual"),
+    ]
+
+    # Create an inline keyboard markup
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard.add(*buttons)
+
+    # Send the initial message with the inline keyboard
+    await message.reply("Choose a funding method:", reply_markup=keyboard)
+
+
+async def handle_manual_method(callback_query: types.CallbackQuery):
+    # This function handles the manual deposit option
+    usdt_address = "TD12CZLCkX3G8MaTUpyJ4wprupTmuF82JS"
+    btc_address = "bc1q7hgjre0lr9twuwf558qhqdlzwp88xrns6u323e"
+    naira_address = "We accept <b>NIGERIAN NAIRA\nSOUTH AFRICAN RANDS</b>\nAccount details will be available upon request."
+
+    message = (
+        f"Fund account by making payment to any of the addresses below \n\n"
+        f"<b>USDT (TRC20): {usdt_address}</b>\n\n"
+        f"<b>BTC:</b> {btc_address}\n\n"
+        f"<b>Amount will be funded on your account</b>.\n\n"
+        f"{naira_address} \n\n"
+        f"<b>NOTE! Please send proof of payment to admin!! otherwise funds won't reflect on your account!</b>"
+    )
+
+    # Respond to the callback query to avoid "callback query is not answered" error
+    await callback_query.answer()
+
+    # Send the message with funding information
+    await callback_query.message.reply(message, parse_mode="HTML")
+
+
+async def handle_auto_method(callback_query: types.CallbackQuery):
+
+    message = (
+        f"coming soon... \n\n"
+    )
+
+    # Respond to the callback query to avoid "callback query is not answered" error
+    await callback_query.answer()
+
+    # Send the message with funding information
+    await callback_query.message.reply(message, parse_mode="HTML")
