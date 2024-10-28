@@ -136,8 +136,7 @@ async def display_categories(message: types.Message):
 
 
 async def handle_category_selection(callback_query: types.CallbackQuery):
-    category = callback_query.data.split("_", 1)[1]  # Extract category name
-    # This should now work
+    category = callback_query.data.split("_", 1)[1]
     await display_products_by_category(callback_query.message, category)
 
 
