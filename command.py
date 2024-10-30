@@ -345,3 +345,102 @@ async def handle_auto_method(callback_query: types.CallbackQuery):
 
     # Send the message with funding information
     await callback_query.message.reply(message, parse_mode="HTML")
+
+
+async def routine_message(message: types.Message, admins):
+    if message.from_user.username in admins:
+        # Split command into two parts
+        content = message.text.split(maxsplit=1)
+        if len(content) >= 2:
+            closure_message = content[1]  # Extract the message content
+
+            # Save message to Firebase with a unique key
+            # Reference to 'messages' node
+            message_ref = db.reference('messages')
+            new_message_ref = message_ref.push()  # Create a new entry with a unique key
+            message_id = new_message_ref.key  # Get the unique key
+            new_message_ref.set({
+                'message': closure_message,
+                'channel_ids': [-1002487692776, -1002392924508],
+                'status': 'sent'  # Optionally track status
+            })
+
+            # Send the closure message to the specified channels
+            for channel_id in [-1002487692776, -1002392924508]:
+                try:
+                    await message.bot.send_message(channel_id, closure_message)
+                    await message.reply(f"Message sent to channel ID: {channel_id}. Message ID: {message_id}.")
+                except Exception as e:
+                    await message.reply(f"Failed to send message to channel ID {channel_id}: {e}")
+        else:
+            await message.reply("Please provide a message to send.")
+    else:
+        await message.reply("You don't have permission to add content.")
+
+
+async def get_product_status(message: types.Message, admins):
+    # Check if the user is an admin
+    username = message.from_user.username
+    if username not in admins:
+        await message.reply("Access Forbidden. You are not authorized to view product statuses.")
+        return
+
+    products_ref = db.reference("products")
+    products = products_ref.get()
+
+    if not products:
+        await message.reply("No products found.")
+        return
+
+    response = []
+
+    for product_id, product_details in products.items():
+        product_name = product_details.get('name', 'Unknown Product')
+        price = product_details.get('price', 'N/A')
+        available = product_details.get('available', False)
+        availability_status = "In Stock ✅" if available else "Sold Out ❌"
+
+        response.append(f"{product_name} - ${price} - {availability_status}\n")
+
+    # Join all the product status messages into a single string
+    product_status_message = "\n".join(response)
+
+    # Reply to the admin
+    await message.reply(product_status_message, parse_mode='HTML')
+
+    # List of channel IDs where the message should be sent
+    # Replace with your actual channel IDs
+    channel_ids = [-1002487692776, -1002392924508]
+
+    # Send the message to each channel
+    for channel_id in channel_ids:
+        try:
+            await message.bot.send_message(channel_id, product_status_message, parse_mode='HTML')
+        except Exception as e:
+            await message.reply(f"Failed to send message to channel ID {channel_id}: {e}")
+
+
+async def get_all_posted_messages(message: types.Message, admins):
+    # Check if the user is an admin
+    username = message.from_user.username
+    if username not in admins:
+        await message.reply("Access Forbidden. You are not authorized to view posted messages.")
+        return
+
+    messages_ref = db.reference("messages")  # Reference to the 'messages' node
+    messages = messages_ref.get()  # Retrieve all messages
+
+    if not messages:
+        await message.reply("No posted messages found.")
+        return
+
+    response = []
+
+    for message_id, message_details in messages.items():
+        message_text = message_details.get('message', 'Unknown message')
+        response.append(f"{message_id}: {message_text}")
+
+    # Join all message entries into a single string
+    formatted_messages = "\n".join(response)
+
+    await message.reply(formatted_messages, parse_mode='HTML')

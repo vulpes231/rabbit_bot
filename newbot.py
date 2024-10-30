@@ -4,7 +4,7 @@ import logging
 import firebase_admin
 from firebase_admin import credentials, db
 from aiogram import Bot, Dispatcher, executor, types
-from command import start, display_profile, add_product, display_categories, display_products_by_category,  handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method
+from command import start, display_profile, add_product, display_categories, display_products_by_category,  handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method, routine_message, get_product_status, get_all_posted_messages
 
 # Load environment credentials
 load_dotenv()
@@ -50,6 +50,19 @@ dp.register_message_handler(
 # Add product
 dp.register_message_handler(
     lambda message: add_product(message, ADMINS), commands=['addproduct']
+)
+
+dp.register_message_handler(
+    lambda message: routine_message(message, ADMINS), commands=['addcontent']
+)
+
+# get status
+dp.register_message_handler(
+    lambda message: get_product_status(message, ADMINS), commands=['status']
+)
+# get messages
+dp.register_message_handler(
+    lambda message: get_all_posted_messages(message, ADMINS), commands=['getmessages']
 )
 
 # Display categories
