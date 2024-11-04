@@ -1,5 +1,18 @@
 from aiogram import types
 from firebase_admin import db
+import asyncio
+import time
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,  # Set the logging level to INFO
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("bot_errors.log"),  # Log to a file
+        logging.StreamHandler()  # Also log to console
+    ]
+)
 
 
 async def start(message: types.Message, ref):
@@ -106,7 +119,7 @@ async def add_product(message: types.Message, admin_usernames):
     await message.reply(f"Product '{name}' added successfully!")
 
 
-# display categories
+# display producxt by categories
 async def display_categories(message: types.Message):
     # Retrieve all products from the database
     products_ref = db.reference("products")
@@ -135,11 +148,13 @@ async def display_categories(message: types.Message):
     await message.reply("Select a category:", reply_markup=keyboard)
 
 
+# handle category selection
 async def handle_category_selection(callback_query: types.CallbackQuery):
     category = callback_query.data.split("_", 1)[1]
     await display_products_by_category(callback_query.message, category)
 
 
+# display products
 async def display_products_by_category(message: types.Message, category: str):
     # Retrieve products in the selected category from the database
     products_ref = db.reference("products")
@@ -176,6 +191,8 @@ async def display_products_by_category(message: types.Message, category: str):
 
     await message.reply("Available products:\n" + "\n".join(product_messages), reply_markup=keyboard)
 
+# place order
+
 
 async def process_order(callback_query: types.CallbackQuery):
     data = callback_query.data.split("_")
@@ -186,6 +203,7 @@ async def process_order(callback_query: types.CallbackQuery):
     await order_product(callback_query.message, product_name, product_price)
 
 
+# process order
 async def order_product(message: types.Message, product_name: str, product_price: float):
     customer_id = message.chat.id
     customer_name = message.from_user.username
@@ -217,6 +235,7 @@ async def order_product(message: types.Message, product_name: str, product_price
     await message.reply("Order placed successfully")
 
 
+# get user orders
 async def get_user_orders(message: types.Message):
     user_id = message.chat.id
 
@@ -247,6 +266,7 @@ async def get_user_orders(message: types.Message):
     await message.reply(orders_message)
 
 
+# show faq
 async def show_faqs_tips(message: types.Message):
     # Example FAQs and tips
     faqs = [
@@ -279,6 +299,7 @@ async def show_faqs_tips(message: types.Message):
     await message.reply(faq_message, parse_mode=types.ParseMode.HTML)
 
 
+# show admins
 async def show_help(message: types.Message, admins):
     # Create inline buttons for each admin
     buttons = []
@@ -295,6 +316,7 @@ async def show_help(message: types.Message, admins):
     await message.reply("You need human help? Contact any of our admins:", reply_markup=keyboard)
 
 
+# fund wallet
 async def fund_wallet(message: types.Message):
     # Create inline buttons for Automatic and Manual funding
     buttons = [
@@ -347,37 +369,49 @@ async def handle_auto_method(callback_query: types.CallbackQuery):
     await callback_query.message.reply(message, parse_mode="HTML")
 
 
+# create post
 async def routine_message(message: types.Message, admins):
     if message.from_user.username in admins:
-        # Split command into two parts
         content = message.text.split(maxsplit=1)
         if len(content) >= 2:
-            closure_message = content[1]  # Extract the message content
+            closure_message = content[1]
 
-            # Save message to Firebase with a unique key
-            # Reference to 'messages' node
             message_ref = db.reference('messages')
-            new_message_ref = message_ref.push()  # Create a new entry with a unique key
-            message_id = new_message_ref.key  # Get the unique key
+            new_message_ref = message_ref.push()
+            message_id = new_message_ref.key
             new_message_ref.set({
                 'message': closure_message,
                 'channel_ids': [-1002487692776, -1002392924508],
-                'status': 'sent'  # Optionally track status
+                'timestamp': time.time(),
+                'status': 'sent',
+                'sent_message_ids': []  # Initialize as empty list for sent message IDs
             })
 
-            # Send the closure message to the specified channels
             for channel_id in [-1002487692776, -1002392924508]:
                 try:
-                    await message.bot.send_message(channel_id, closure_message)
-                    await message.reply(f"Message sent to channel ID: {channel_id}. Message ID: {message_id}.")
+                    # Send the message and capture the response
+                    sent_message = await message.bot.send_message(channel_id, closure_message)
+
+                    # Log the numeric message ID
+                    logging.info(
+                        f"Sent message ID: {sent_message.message_id} (Type: {type(sent_message.message_id)})")
+
+                    print((
+                        f"Sent message ID: {sent_message}"))
+
+                    # Store the actual numeric message ID in Firebase
+                    new_message_ref.child('sent_message_ids').push(
+                        sent_message.message_id)  # This should be numeric
+                    await message.reply(f"Message sent to channel ID: {channel_id}. Message ID: {sent_message}.")
                 except Exception as e:
-                    await message.reply(f"Failed to send message to channel ID {channel_id}: {e}")
+                    await message.reply(f"Failed to send message to channel ID {channel_id}: {str(e)}")
         else:
             await message.reply("Please provide a message to send.")
     else:
         await message.reply("You don't have permission to add content.")
 
 
+# get product status
 async def get_product_status(message: types.Message, admins):
     # Check if the user is an admin
     username = message.from_user.username
@@ -420,6 +454,7 @@ async def get_product_status(message: types.Message, admins):
             await message.reply(f"Failed to send message to channel ID {channel_id}: {e}")
 
 
+# Get posted messages
 async def get_all_posted_messages(message: types.Message, admins):
     # Check if the user is an admin
     username = message.from_user.username
@@ -438,9 +473,173 @@ async def get_all_posted_messages(message: types.Message, admins):
 
     for message_id, message_details in messages.items():
         message_text = message_details.get('message', 'Unknown message')
-        response.append(f"{message_id}: {message_text}")
+        channel_ids = message_details.get('channel_ids', [])
+        timestamp = message_details.get('timestamp', 'Unknown timestamp')
+        status = message_details.get('status', 'Unknown status')
+        sent_message_ids = message_details.get('sent_message_ids', [])
+
+        # Collect sent message IDs and format them for display
+        formatted_sent_ids = []
+        for sent_key, sent_data in sent_message_ids.items():
+            numeric_id = sent_data.get('numeric_id')
+            firebase_id = sent_data.get('firebase_message_id')
+            formatted_sent_ids.append(
+                f"Numeric ID: {numeric_id}, Firebase ID: {firebase_id}")
+
+        # Format each message's properties into a readable string
+        formatted_message = (
+            f"<b>Firebase Message ID:</b> {message_id}\n"
+            f"<b>Message Text:</b> {message_text}\n"
+            f"<b>Channel IDs:</b> {', '.join(map(str, channel_ids))}\n"
+            f"<b>Timestamp:</b> {timestamp}\n"
+            f"<b>Status:</b> {status}\n"
+            f"<b>Sent Message IDs:</b> {', '.join(formatted_sent_ids) if formatted_sent_ids else 'None'}\n"
+            f"<b>--------------------------</b>"
+        )
+        response.append(formatted_message)
 
     # Join all message entries into a single string
-    formatted_messages = "\n".join(response)
+    formatted_messages = "\n\n".join(response)
 
     await message.reply(formatted_messages, parse_mode='HTML')
+
+
+# This function sends messages and stores them in Firebase
+async def routine_message(message: types.Message, admins):
+    if message.from_user.username in admins:
+        content = message.text.split(maxsplit=1)
+        if len(content) >= 2:
+            closure_message = content[1]
+
+            message_ref = db.reference('messages')
+            new_message_ref = message_ref.push()
+            firebase_message_id = new_message_ref.key
+
+            # Set initial message data in Firebase
+            new_message_ref.set({
+                'message': closure_message,
+                'channel_ids': [-1002340916811],
+                'timestamp': time.time(),
+                'status': 'sent',
+                'sent_message_ids': []  # Initialize as empty list for sent message IDs
+            })
+
+            for channel_id in [-1002340916811]:
+                try:
+                    sent_message = await message.bot.send_message(channel_id, closure_message)
+
+                    # Log the numeric message ID
+                    logging.info(
+                        f"Sent message ID: {sent_message.message_id} (Type: {type(sent_message.message_id)})"
+                    )
+
+                    # Create a dictionary for the sent message
+                    sent_message_data = {
+                        # Store the numeric ID of the sent message
+                        'numeric_id': sent_message.message_id,
+                        # Store the Firebase message ID
+                        'firebase_message_id': str(firebase_message_id)
+                    }
+
+                    # Store the message data in Firebase
+                    new_message_ref.child(
+                        'sent_message_ids').push(sent_message_data)
+
+                    await message.reply(f"Message sent to channel ID: {channel_id}. Message ID: {sent_message.message_id}.")
+                except Exception as e:
+                    await message.reply(f"Failed to send message to channel ID {channel_id}: {str(e)}")
+        else:
+            await message.reply("Please provide a message to send.")
+
+
+# Handle delete message
+async def handle_delete_message(message: types.Message, admins):
+    # Check if the user is an admin
+    if message.from_user.username not in admins:
+        await message.reply("You do not have permission to delete messages.")
+        return
+
+    # Extract the message ID from the command
+    content = message.text.split(maxsplit=1)
+    if len(content) < 2:
+        await message.reply("Please provide a message ID to delete.")
+        return
+
+    message_id_to_delete = content[1]  # Get the message ID
+
+    # Call the delete message function
+    await delete_message(message_id_to_delete, message, admins)
+
+
+# Delete message helper
+async def delete_message(message_id, message, admins):
+    messages_ref = db.reference("messages")
+    message_details = messages_ref.child(message_id).get()
+
+    if message_details is None:
+        if message:  # Only reply if message is not None
+            await message.reply("Message not found in the database. Please check the message ID.")
+        return
+
+    sent_message_ids = message_details.get('sent_message_ids', {})
+    channel_ids = message_details.get('channel_ids', [])
+
+    # Delete from Telegram channels using numeric IDs
+    for sent_message_key, sent_message_data in sent_message_ids.items():
+        numeric_id = sent_message_data.get('numeric_id')  # Get the numeric ID
+        if numeric_id is None:
+            continue  # Skip if there's no numeric_id
+
+        for channel_id in channel_ids:
+            try:
+                await message.bot.delete_message(chat_id=channel_id, message_id=int(numeric_id))
+                logging.info(
+                    f"Successfully deleted message ID: {numeric_id} from channel ID: {channel_id}."
+                )
+            except Exception as e:
+                logging.error(
+                    f"Failed to delete message ID: {numeric_id} from channel ID: {channel_id}. Error: {e}"
+                )
+
+    # Remove from Firebase database
+    messages_ref.child(message_id).delete()
+    logging.info(f"Deleted message ID: {message_id} from the database.")
+
+    if message:  # Only reply if message is not None
+        await message.reply("Message has been deleted from the channel and database.")
+
+
+class DummyMessage:
+    def __init__(self, bot):
+        self.bot = bot
+
+    async def reply(self, text):
+        logging.info(f"Dummy reply: {text}")
+
+
+async def delete_oldest_message(bot):
+    while True:
+        messages_ref = db.reference("messages")
+        messages = messages_ref.get()
+
+        if not messages:
+            logging.info("No messages to delete.")
+            await asyncio.sleep(120)  # Wait for 2 minutes
+            continue
+
+        oldest_message_id = None
+        oldest_timestamp = float('inf')
+
+        for message_id, message_details in messages.items():
+            timestamp = message_details.get('timestamp', float('inf'))
+            if timestamp < oldest_timestamp:
+                oldest_timestamp = timestamp
+                oldest_message_id = message_id
+
+        if oldest_message_id:
+            logging.info(
+                f"Attempting to delete the oldest message ID: {oldest_message_id}.")
+            dummy_message = DummyMessage(bot)
+            await delete_message(oldest_message_id, dummy_message, None)
+
+        await asyncio.sleep(120)  # Wait for 2 minutes

@@ -1,10 +1,11 @@
 import os
 from dotenv import load_dotenv
 import logging
+import asyncio
 import firebase_admin
 from firebase_admin import credentials, db
 from aiogram import Bot, Dispatcher, executor, types
-from command import start, display_profile, add_product, display_categories, display_products_by_category,  handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method, routine_message, get_product_status, get_all_posted_messages
+from command import start, display_profile, add_product, display_categories, display_products_by_category, handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method, routine_message, get_product_status, get_all_posted_messages, handle_delete_message, delete_message, delete_oldest_message
 
 # Load environment credentials
 load_dotenv()
@@ -25,86 +26,51 @@ logging.basicConfig(
 
 # Initialize database
 cred = credentials.Certificate("rabbitcred.json")
-firebase_admin.initialize_app(
-    cred, {"databaseURL": DATABASE_URL})
+firebase_admin.initialize_app(cred, {"databaseURL": DATABASE_URL})
 
-
-ref = db.reference("/")
-
-# Initialize bot
+# Initialize bot and dispatcher
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 
 # User commands
-
-# /start
 dp.register_message_handler(
-    lambda message: start(message, ref), commands=['start']
-)
-
-# Check profile
+    lambda message: start(message, ref), commands=['start'])
 dp.register_message_handler(
-    display_profile, lambda message: message.text == "Profile"
-)
-
-# Add product
+    display_profile, lambda message: message.text == "Profile")
+dp.register_message_handler(lambda message: add_product(
+    message, ADMINS), commands=['addproduct'])
+dp.register_message_handler(lambda message: routine_message(
+    message, ADMINS), commands=['addcontent'])
+dp.register_message_handler(lambda message: get_product_status(
+    message, ADMINS), commands=['status'])
+dp.register_message_handler(lambda message: get_all_posted_messages(
+    message, ADMINS), commands=['getmessages'])
+dp.register_message_handler(lambda message: handle_delete_message(
+    message, ADMINS), commands=['deletemsg'])
 dp.register_message_handler(
-    lambda message: add_product(message, ADMINS), commands=['addproduct']
-)
-
-dp.register_message_handler(
-    lambda message: routine_message(message, ADMINS), commands=['addcontent']
-)
-
-# get status
-dp.register_message_handler(
-    lambda message: get_product_status(message, ADMINS), commands=['status']
-)
-# get messages
-dp.register_message_handler(
-    lambda message: get_all_posted_messages(message, ADMINS), commands=['getmessages']
-)
-
-# Display categories
-dp.register_message_handler(
-    display_categories, lambda message: message.text == "Products"
-)
-
-# Handle user selection (category selection and product display)
+    display_categories, lambda message: message.text == "Products")
 dp.register_callback_query_handler(
     handle_category_selection, lambda c: c.data.startswith("category_"))
-
-# Register the order processing callback
 dp.register_callback_query_handler(
     process_order, lambda c: c.data.startswith("order_"))
-
-
 dp.register_message_handler(
-    get_user_orders, lambda message: message.text == "Orders"
-)
-
+    get_user_orders, lambda message: message.text == "Orders")
 dp.register_message_handler(
-    show_faqs_tips, lambda message: message.text == "FAQs"
-)
-
+    show_faqs_tips, lambda message: message.text == "FAQs")
 dp.register_message_handler(
-    fund_wallet, lambda message: message.text == "Fund Wallet"
-)
-
-# Register the callback query handler for manual funding
+    fund_wallet, lambda message: message.text == "Fund Wallet")
 dp.register_callback_query_handler(
-    handle_manual_method, lambda c: c.data == "fund_manual"
-)
-# Register the callback query handler for manual funding
+    handle_manual_method, lambda c: c.data == "fund_manual")
 dp.register_callback_query_handler(
-    handle_auto_method, lambda c: c.data == "fund_auto"
-)
+    handle_auto_method, lambda c: c.data == "fund_auto")
+dp.register_message_handler(lambda message: show_help(
+    message, ADMINS), lambda message: message.text == "Support")
 
-dp.register_message_handler(
-    lambda message: show_help(
-        message, ADMINS), lambda message: message.text == "Support"
-)
 
+# Start the periodic deletion task after polling starts
+async def on_startup(dispatcher):
+    asyncio.create_task(delete_oldest_message(dispatcher.bot))
 
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    logging.basicConfig(level=logging.INFO)  # Set up logging
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
