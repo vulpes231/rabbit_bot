@@ -369,48 +369,6 @@ async def handle_auto_method(callback_query: types.CallbackQuery):
     await callback_query.message.reply(message, parse_mode="HTML")
 
 
-# create post
-async def routine_message(message: types.Message, admins):
-    if message.from_user.username in admins:
-        content = message.text.split(maxsplit=1)
-        if len(content) >= 2:
-            closure_message = content[1]
-
-            message_ref = db.reference('messages')
-            new_message_ref = message_ref.push()
-            message_id = new_message_ref.key
-            new_message_ref.set({
-                'message': closure_message,
-                'channel_ids': [-1002487692776, -1002392924508],
-                'timestamp': time.time(),
-                'status': 'sent',
-                'sent_message_ids': []  # Initialize as empty list for sent message IDs
-            })
-
-            for channel_id in [-1002487692776, -1002392924508]:
-                try:
-                    # Send the message and capture the response
-                    sent_message = await message.bot.send_message(channel_id, closure_message)
-
-                    # Log the numeric message ID
-                    logging.info(
-                        f"Sent message ID: {sent_message.message_id} (Type: {type(sent_message.message_id)})")
-
-                    print((
-                        f"Sent message ID: {sent_message}"))
-
-                    # Store the actual numeric message ID in Firebase
-                    new_message_ref.child('sent_message_ids').push(
-                        sent_message.message_id)  # This should be numeric
-                    await message.reply(f"Message sent to channel ID: {channel_id}. Message ID: {sent_message}.")
-                except Exception as e:
-                    await message.reply(f"Failed to send message to channel ID {channel_id}: {str(e)}")
-        else:
-            await message.reply("Please provide a message to send.")
-    else:
-        await message.reply("You don't have permission to add content.")
-
-
 # get product status
 async def get_product_status(message: types.Message, admins):
     # Check if the user is an admin
@@ -507,49 +465,92 @@ async def get_all_posted_messages(message: types.Message, admins):
 # This function sends messages and stores them in Firebase
 async def routine_message(message: types.Message, admins):
     if message.from_user.username in admins:
-        content = message.text.split(maxsplit=1)
-        if len(content) >= 2:
-            closure_message = content[1]
+        # Split the message using commas and strip extra spaces
+        content = message.text.split(',')
 
+        if len(content) >= 2:
+
+            closure_message = content[1].strip()
+
+            # The third part is the interval
+            interval = 0  # Default interval (no reposting)
+            if len(content) == 3:
+                # Strip any extra spaces from the interval
+                interval_str = content[2].strip()
+                if interval_str.isdigit():  # Check if the interval is a valid number
+                    interval = int(interval_str)
+                    if interval < 1:
+                        await message.reply("Interval must be at least 1 minute.")
+                        return
+                else:
+                    await message.reply("Invalid interval. Please provide a valid number in minutes.")
+                    return
+
+            # Store the message data in Firebase
             message_ref = db.reference('messages')
             new_message_ref = message_ref.push()
             firebase_message_id = new_message_ref.key
 
-            # Set initial message data in Firebase
             new_message_ref.set({
                 'message': closure_message,
                 'channel_ids': [-1002340916811],
                 'timestamp': time.time(),
                 'status': 'sent',
-                'sent_message_ids': []  # Initialize as empty list for sent message IDs
+                'sent_message_ids': []  # Store sent message IDs
             })
 
+            # Send the original message to the channels
             for channel_id in [-1002340916811]:
                 try:
                     sent_message = await message.bot.send_message(channel_id, closure_message)
-
-                    # Log the numeric message ID
                     logging.info(
-                        f"Sent message ID: {sent_message.message_id} (Type: {type(sent_message.message_id)})"
-                    )
+                        f"Sent message ID: {sent_message.message_id} to {channel_id}")
 
-                    # Create a dictionary for the sent message
+                    # Store the sent message data
                     sent_message_data = {
-                        # Store the numeric ID of the sent message
                         'numeric_id': sent_message.message_id,
-                        # Store the Firebase message ID
                         'firebase_message_id': str(firebase_message_id)
                     }
-
-                    # Store the message data in Firebase
                     new_message_ref.child(
                         'sent_message_ids').push(sent_message_data)
 
-                    await message.reply(f"Message sent to channel ID: {channel_id}. Message ID: {sent_message.message_id}.")
+                    await message.reply(f"Meszsage sent to channel ID: {channel_id}. Message ID: {sent_message.message_id}.")
+
+                    # If an interval is provided, schedule reposting
+                    if interval > 0:
+                        await schedule_repost(sent_message.message_id, closure_message, channel_id, interval)
+
                 except Exception as e:
                     await message.reply(f"Failed to send message to channel ID {channel_id}: {str(e)}")
         else:
-            await message.reply("Please provide a message to send.")
+            await message.reply("Please provide a message and interval in the correct format.")
+
+
+async def schedule_repost(original_message_id, message_text, channel_id, interval_minutes):
+    """
+    Schedules a reposting of the message after the specified interval (in minutes).
+    """
+    interval_seconds = interval_minutes * 60  # Convert minutes to seconds
+    await asyncio.sleep(interval_seconds)  # Wait for the specified interval
+
+    try:
+        # Repost the message after the delay
+        reposted_message = await bot.send_message(channel_id, message_text)
+        logging.info(
+            f"Reposted message ID: {reposted_message.message_id} to {channel_id}")
+
+        # You can also log the repost or update Firebase if needed.
+        # For example, to store the new message in Firebase:
+        message_ref = db.reference('messages')
+        reposted_message_data = {
+            'numeric_id': reposted_message.message_id,
+            'original_message_id': original_message_id
+        }
+        message_ref.child('sent_message_ids').push(reposted_message_data)
+
+    except Exception as e:
+        logging.error(
+            f"Failed to repost message to channel {channel_id}: {str(e)}")
 
 
 # Handle delete message

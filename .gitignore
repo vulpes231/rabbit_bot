@@ -28,3 +28,4 @@ dist/
 
 # Sensitive files
 rabbitcred.json
+bot_errors.log

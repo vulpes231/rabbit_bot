@@ -5,7 +5,7 @@ import asyncio
 import firebase_admin
 from firebase_admin import credentials, db
 from aiogram import Bot, Dispatcher, executor, types
-from command import start, display_profile, add_product, display_categories, display_products_by_category, handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method, routine_message, get_product_status, get_all_posted_messages, handle_delete_message, delete_message, delete_oldest_message
+from command import start, display_profile, add_product, display_categories, display_products_by_category, handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method,  routine_message, get_product_status, get_all_posted_messages, handle_delete_message, delete_message, delete_oldest_message
 
 # Load environment credentials
 load_dotenv()
