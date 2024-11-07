@@ -5,7 +5,7 @@ import asyncio
 import firebase_admin
 from firebase_admin import credentials, db
 from aiogram import Bot, Dispatcher, executor, types
-from command import start, display_profile, add_product, display_categories, display_products_by_category, handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method,  routine_message, get_product_status, get_all_posted_messages, handle_delete_message, delete_message, delete_oldest_message
+from command import start, display_profile, add_product, display_categories, display_products_by_category, handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method,  routine_message, get_product_status, get_all_posted_messages, handle_delete_message, delete_message, delete_due_messages, manual_delete_all_messages
 
 # Load environment credentials
 load_dotenv()
@@ -41,6 +41,8 @@ dp.register_message_handler(lambda message: add_product(
     message, ADMINS), commands=['addproduct'])
 dp.register_message_handler(lambda message: routine_message(
     message, ADMINS), commands=['addcontent'])
+dp.register_message_handler(lambda message: manual_delete_all_messages(
+    message, ADMINS), commands=['deleteallmsg'])
 dp.register_message_handler(lambda message: get_product_status(
     message, ADMINS), commands=['status'])
 dp.register_message_handler(lambda message: get_all_posted_messages(
@@ -69,7 +71,7 @@ dp.register_message_handler(lambda message: show_help(
 
 # Start the periodic deletion task after polling starts
 async def on_startup(dispatcher):
-    asyncio.create_task(delete_oldest_message(dispatcher.bot))
+    asyncio.create_task(delete_due_messages(dispatcher.bot))
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)  # Set up logging

@@ -462,95 +462,107 @@ async def get_all_posted_messages(message: types.Message, admins):
     await message.reply(formatted_messages, parse_mode='HTML')
 
 
-# This function sends messages and stores them in Firebase
+# Main function to handle the routine message command
 async def routine_message(message: types.Message, admins):
+    logging.info(f"Received message: {message.text}")
+
     if message.from_user.username in admins:
-        # Split the message using commas and strip extra spaces
-        content = message.text.split(',')
+        # Remove the command part "/addcontent" from the message
+        content = message.text[len("/addcontent"):].strip()
 
-        if len(content) >= 2:
+        # Check if content is empty
+        if not content:
+            await message.reply("Please provide a message and optional interval in the correct format: `/addcontent <message>, <interval>`.")
+            return
 
-            closure_message = content[1].strip()
+        # Split the content by comma (message, interval)
+        content_parts = content.split(',')
+        logging.info(f"Split content: {content_parts}")
 
-            # The third part is the interval
-            interval = 0  # Default interval (no reposting)
-            if len(content) == 3:
-                # Strip any extra spaces from the interval
-                interval_str = content[2].strip()
-                if interval_str.isdigit():  # Check if the interval is a valid number
-                    interval = int(interval_str)
-                    if interval < 1:
-                        await message.reply("Interval must be at least 1 minute.")
-                        return
-                else:
-                    await message.reply("Invalid interval. Please provide a valid number in minutes.")
+        # The first part is the message
+        closure_message = content_parts[0].strip()
+        logging.info(f"Message to send: {closure_message}")
+
+        # The second part is the interval (optional)
+        interval = 0  # Default interval is 0 (no reposting)
+
+        if len(content_parts) == 2:
+            interval_str = content_parts[1].strip()
+            if interval_str.isdigit():
+                interval = int(interval_str)
+                if interval < 1:
+                    await message.reply("Interval must be at least 1 minute.")
                     return
+            else:
+                await message.reply("Invalid interval. Please provide a valid number in minutes.")
+                return
 
-            # Store the message data in Firebase
+        # Log interval value
+        logging.info(f"Interval set to: {interval} minutes")
+
+        # Store the message data in Firebase
+        message_ref = db.reference('messages')
+        new_message_ref = message_ref.push()
+        firebase_message_id = new_message_ref.key
+
+        new_message_ref.set({
+            'message': closure_message,
+            'interval': interval,  # Save the interval to Firebase
+            # Replace with your actual channel ID(s)
+            'channel_ids': [-1002340916811],
+            'timestamp': time.time(),
+            'status': 'sent',
+            'sent_message_ids': []  # Store sent message IDs
+        })
+
+        # Send the original message to the channel(s)
+        # Replace with the actual channel ID(s)
+        for channel_id in [-1002340916811]:
+            try:
+                sent_message = await message.bot.send_message(channel_id, closure_message)
+                logging.info(
+                    f"Sent message ID: {sent_message.message_id} to {channel_id}")
+
+                # Store the sent message data in Firebase
+                sent_message_data = {
+                    'numeric_id': sent_message.message_id,
+                    'firebase_message_id': str(firebase_message_id)
+                }
+                new_message_ref.child(
+                    'sent_message_ids').push(sent_message_data)
+
+                await message.reply(f"Message sent to channel ID: {channel_id}. Message ID: {sent_message.message_id}.")
+
+                # If an interval is provided, schedule reposting
+                if interval > 0:
+                    await schedule_repost(message.bot, sent_message.message_id, closure_message, channel_id, interval)
+
+            except Exception as e:
+                await message.reply(f"Failed to send message to channel ID {channel_id}: {str(e)}")
+    else:
+        await message.reply("You are not authorized to use this command.")
+
+
+async def schedule_repost(bot, message_id, message_text, channel_id, interval):
+    while True:
+        await asyncio.sleep(interval * 60)  # Interval in minutes
+        try:
+            # Repost the message
+            sent_message = await bot.send_message(channel_id, message_text)
+            logging.info(
+                f"Reposted message with ID {sent_message.message_id} to {channel_id}")
+
+            # Store the reposted message details in Firebase
             message_ref = db.reference('messages')
-            new_message_ref = message_ref.push()
-            firebase_message_id = new_message_ref.key
-
-            new_message_ref.set({
-                'message': closure_message,
-                'channel_ids': [-1002340916811],
-                'timestamp': time.time(),
-                'status': 'sent',
-                'sent_message_ids': []  # Store sent message IDs
+            # Convert message_id to string to ensure a valid Firebase path
+            message_ref.child(str(message_id)).child('sent_message_ids').push({
+                'numeric_id': sent_message.message_id,
+                'firebase_message_id': str(message_id)
             })
 
-            # Send the original message to the channels
-            for channel_id in [-1002340916811]:
-                try:
-                    sent_message = await message.bot.send_message(channel_id, closure_message)
-                    logging.info(
-                        f"Sent message ID: {sent_message.message_id} to {channel_id}")
-
-                    # Store the sent message data
-                    sent_message_data = {
-                        'numeric_id': sent_message.message_id,
-                        'firebase_message_id': str(firebase_message_id)
-                    }
-                    new_message_ref.child(
-                        'sent_message_ids').push(sent_message_data)
-
-                    await message.reply(f"Meszsage sent to channel ID: {channel_id}. Message ID: {sent_message.message_id}.")
-
-                    # If an interval is provided, schedule reposting
-                    if interval > 0:
-                        await schedule_repost(sent_message.message_id, closure_message, channel_id, interval)
-
-                except Exception as e:
-                    await message.reply(f"Failed to send message to channel ID {channel_id}: {str(e)}")
-        else:
-            await message.reply("Please provide a message and interval in the correct format.")
-
-
-async def schedule_repost(original_message_id, message_text, channel_id, interval_minutes):
-    """
-    Schedules a reposting of the message after the specified interval (in minutes).
-    """
-    interval_seconds = interval_minutes * 60  # Convert minutes to seconds
-    await asyncio.sleep(interval_seconds)  # Wait for the specified interval
-
-    try:
-        # Repost the message after the delay
-        reposted_message = await bot.send_message(channel_id, message_text)
-        logging.info(
-            f"Reposted message ID: {reposted_message.message_id} to {channel_id}")
-
-        # You can also log the repost or update Firebase if needed.
-        # For example, to store the new message in Firebase:
-        message_ref = db.reference('messages')
-        reposted_message_data = {
-            'numeric_id': reposted_message.message_id,
-            'original_message_id': original_message_id
-        }
-        message_ref.child('sent_message_ids').push(reposted_message_data)
-
-    except Exception as e:
-        logging.error(
-            f"Failed to repost message to channel {channel_id}: {str(e)}")
+        except Exception as e:
+            logging.error(
+                f"Error reposting message {message_id} to {channel_id}: {e}")
 
 
 # Handle delete message
@@ -573,7 +585,16 @@ async def handle_delete_message(message: types.Message, admins):
 
 
 # Delete message helper
-async def delete_message(message_id, message, admins):
+class DummyMessage:
+    def __init__(self, bot):
+        self.bot = bot
+
+    async def reply(self, text):
+        logging.info(f"Dummy reply: {text}")
+
+
+async def delete_message(message_id, message, admins, delete_from_firebase=False):
+    # Fetch message details from Firebase
     messages_ref = db.reference("messages")
     message_details = messages_ref.child(message_id).get()
 
@@ -585,7 +606,7 @@ async def delete_message(message_id, message, admins):
     sent_message_ids = message_details.get('sent_message_ids', {})
     channel_ids = message_details.get('channel_ids', [])
 
-    # Delete from Telegram channels using numeric IDs
+    # Delete from Telegram channels using numeric IDs, but do not delete from Firebase
     for sent_message_key, sent_message_data in sent_message_ids.items():
         numeric_id = sent_message_data.get('numeric_id')  # Get the numeric ID
         if numeric_id is None:
@@ -595,52 +616,130 @@ async def delete_message(message_id, message, admins):
             try:
                 await message.bot.delete_message(chat_id=channel_id, message_id=int(numeric_id))
                 logging.info(
-                    f"Successfully deleted message ID: {numeric_id} from channel ID: {channel_id}."
-                )
+                    f"Successfully deleted message ID: {numeric_id} from channel ID: {channel_id}.")
             except Exception as e:
                 logging.error(
-                    f"Failed to delete message ID: {numeric_id} from channel ID: {channel_id}. Error: {e}"
-                )
-
-    # Remove from Firebase database
-    messages_ref.child(message_id).delete()
-    logging.info(f"Deleted message ID: {message_id} from the database.")
+                    f"Failed to delete message ID: {numeric_id} from channel ID: {channel_id}. Error: {e}")
 
     if message:  # Only reply if message is not None
-        await message.reply("Message has been deleted from the channel and database.")
+        await message.reply("Message has been deleted from the channel.")
+
+    if delete_from_firebase:
+        # Optionally remove it from Firebase if you want it to stop reposting
+        messages_ref.child(message_id).delete()
+        logging.info(f"Deleted message ID: {message_id} from the database.")
 
 
-class DummyMessage:
-    def __init__(self, bot):
-        self.bot = bot
-
-    async def reply(self, text):
-        logging.info(f"Dummy reply: {text}")
-
-
-async def delete_oldest_message(bot):
+async def delete_due_messages(bot):
     while True:
+        # Get all messages from the Firebase database
         messages_ref = db.reference("messages")
         messages = messages_ref.get()
 
         if not messages:
-            logging.info("No messages to delete.")
-            await asyncio.sleep(120)  # Wait for 2 minutes
+            logging.info("No messages to check.")
+            await asyncio.sleep(60)  # Wait for 1 hour (3600 seconds)
             continue
 
-        oldest_message_id = None
-        oldest_timestamp = float('inf')
+        current_time = time.time()  # Current time in seconds
 
         for message_id, message_details in messages.items():
-            timestamp = message_details.get('timestamp', float('inf'))
-            if timestamp < oldest_timestamp:
-                oldest_timestamp = timestamp
-                oldest_message_id = message_id
+            # Skip deleted messages that no longer exist in Firebase
+            if not message_details:
+                continue  # Skip if the message details were deleted
 
-        if oldest_message_id:
-            logging.info(
-                f"Attempting to delete the oldest message ID: {oldest_message_id}.")
-            dummy_message = DummyMessage(bot)
-            await delete_message(oldest_message_id, dummy_message, None)
+            # Get the interval (in minutes)
+            interval = message_details.get('interval', 0)
+            # Get the timestamp when the message was first posted
+            timestamp = message_details.get('timestamp', current_time)
 
-        await asyncio.sleep(120)  # Wait for 2 minutes
+            if interval > 0:
+                # Calculate when the next repost would be due
+                last_posted_time = timestamp
+                next_repost_time = last_posted_time + \
+                    (interval * 60)  # Interval in seconds
+
+                # Check if the message's next repost is due in 1 minute or less
+                if next_repost_time - current_time <= 60:  # 60 seconds or less remaining
+                    logging.info(
+                        f"Message ID {message_id} is due for repost or deletion.")
+                    # Create a dummy message object
+                    dummy_message = DummyMessage(bot)
+
+                    # Delete message from the channel but leave it in Firebase
+                    await delete_message(message_id, dummy_message, None, delete_from_firebase=False)
+
+                    # Repost the message
+                    closure_message = message_details.get('message', "")
+                    channel_ids = message_details.get('channel_ids', [])
+
+                    # Repost the message to all channels
+                    for channel_id in channel_ids:
+                        try:
+                            sent_message = await bot.send_message(channel_id, closure_message)
+                            logging.info(
+                                f"Reposted message ID {sent_message.message_id} to channel {channel_id}.")
+
+                            # Store the reposted message in Firebase
+                            message_ref = db.reference('messages')
+                            sent_message_data = {
+                                'numeric_id': sent_message.message_id,
+                                'firebase_message_id': message_id
+                            }
+                            message_ref.child(message_id).child(
+                                'sent_message_ids').push(sent_message_data)
+
+                        except Exception as e:
+                            logging.error(
+                                f"Error reposting message ID {message_id} to {channel_id}: {e}")
+
+        # Wait for 1 hour (3600 seconds) before checking again
+        await asyncio.sleep(60)
+
+
+async def manual_delete_all_messages(message, bot, channel_ids):
+    """
+    Manually fetch all messages from Firebase and delete them from the specified channels.
+    The messages will not be deleted from Firebase, only from the channel.
+    """
+    # Reference to the Firebase database where messages are stored
+    messages_ref = db.reference("messages")
+    messages = messages_ref.get()
+
+    if not messages:
+        await message.reply("No messages found in the database.")
+        return
+
+    # Loop through all the messages in Firebase
+    for message_id, message_details in messages.items():
+        try:
+            # Get the sent message IDs associated with this Firebase message
+            sent_message_ids = message_details.get('sent_message_ids', {})
+
+            if not sent_message_ids:
+                logging.warning(
+                    f"No sent messages found for Firebase message ID {message_id}. Skipping.")
+                continue  # Skip if no sent message IDs are found
+
+            # Loop through all the sent message IDs for the message
+            for sent_message_key, sent_message_data in sent_message_ids.items():
+                # Get the numeric ID of the message
+                numeric_id = sent_message_data.get('numeric_id')
+                if numeric_id is None:
+                    continue  # Skip if no numeric_id is available
+
+                # Loop through all the specified channels to delete the message
+                for channel_id in channel_ids:
+                    try:
+                        await bot.delete_message(chat_id=channel_id, message_id=int(numeric_id))
+                        logging.info(
+                            f"Successfully deleted message ID {numeric_id} from channel ID {channel_id}.")
+                    except Exception as e:
+                        logging.error(
+                            f"Failed to delete message ID {numeric_id} from channel ID {channel_id}. Error: {e}")
+
+            await message.reply(f"All messages have been deleted from the channels {', '.join(map(str, channel_ids))}.")
+        except Exception as e:
+            logging.error(
+                f"Error processing Firebase message ID {message_id}: {e}")
+            await message.reply(f"Error processing Firebase message ID {message_id}. Check the logs for details.")
