@@ -15,13 +15,13 @@ logging.basicConfig(
 )
 
 
-async def start(message: types.Message, ref):
+async def start(message: types.Message):
     user_id = message.chat.id
     username = message.from_user.username if message.from_user.username else str(
         user_id)
 
     # Check if user profile exists
-    user_ref = ref.child(f"users/{user_id}")
+    user_ref = db.reference(f"users/{user_id}")
     user_data = user_ref.get()
 
     if user_data is None:
@@ -509,7 +509,7 @@ async def routine_message(message: types.Message, admins):
             'message': closure_message,
             'interval': interval,  # Save the interval to Firebase
             # Replace with your actual channel ID(s)
-            'channel_ids': [-1002340916811],
+            'channel_ids': [-1002426920807, -1002340916811],
             'timestamp': time.time(),
             'status': 'sent',
             'sent_message_ids': []  # Store sent message IDs
@@ -517,7 +517,7 @@ async def routine_message(message: types.Message, admins):
 
         # Send the original message to the channel(s)
         # Replace with the actual channel ID(s)
-        for channel_id in [-1002340916811]:
+        for channel_id in [-1002426920807, -1002340916811]:
             try:
                 sent_message = await message.bot.send_message(channel_id, closure_message)
                 logging.info(
@@ -545,24 +545,77 @@ async def routine_message(message: types.Message, admins):
 
 async def schedule_repost(bot, message_id, message_text, channel_id, interval):
     while True:
-        await asyncio.sleep(interval * 60)  # Interval in minutes
+        # Wait for the specified interval (in minutes)
+        await asyncio.sleep(interval * 60)
+
         try:
-            # Repost the message
+            # Fetch the message details from Firebase
+            messages_ref = db.reference('messages')
+            message_details = messages_ref.child(message_id).get()
+
+            # Check if the message still exists in Firebase (could be deleted)
+            if message_details is None:
+                logging.info(
+                    f"Message ID {message_id} does not exist in Firebase anymore. Skipping repost.")
+                return
+
+            # Get the list of sent messages (IDs) from Firebase
+            sent_message_ids = message_details.get('sent_message_ids', {})
+
+            # Sort sent messages by numeric_id to find the latest one
+            last_sent_message_id = None
+            for sent_message_data in sent_message_ids.values():
+                last_sent_message_id = sent_message_data.get(
+                    'numeric_id')  # Get the last sent message ID
+
+            if last_sent_message_id:
+                try:
+                    # Check if the old message is still in the channel
+                    try:
+                        old_message = await bot.get_message(chat_id=channel_id, message_id=int(last_sent_message_id))
+                        if old_message:
+                            # If the message is still in the channel, delete it
+                            await bot.delete_message(chat_id=channel_id, message_id=int(last_sent_message_id))
+                            logging.info(
+                                f"Deleted old message ID {last_sent_message_id} from channel ID {channel_id}.")
+                            # After deletion, clean up the old message entry in Firebase (optional)
+                            messages_ref.child(str(message_id)).child(
+                                'sent_message_ids').delete()
+                    except Exception as e:
+                        logging.error(
+                            f"Error checking or deleting old message ID {last_sent_message_id}: {e}")
+
+                except Exception as e:
+                    logging.error(
+                        f"Error retrieving or deleting old message ID {last_sent_message_id}: {e}")
+
+            # Now, repost the message only if it still exists in Firebase
             sent_message = await bot.send_message(channel_id, message_text)
             logging.info(
                 f"Reposted message with ID {sent_message.message_id} to {channel_id}")
 
             # Store the reposted message details in Firebase
-            message_ref = db.reference('messages')
-            # Convert message_id to string to ensure a valid Firebase path
-            message_ref.child(str(message_id)).child('sent_message_ids').push({
+            sent_message_data = {
                 'numeric_id': sent_message.message_id,
                 'firebase_message_id': str(message_id)
-            })
+            }
+
+            # Reference to the "sent_message_ids" field in the Firebase database
+            sent_message_ref = messages_ref.child(
+                str(message_id)).child('sent_message_ids')
+
+            # Clear the existing sent_message_ids array (overwrite with an empty list)
+            sent_message_ref.set([])
+
+            # Push the new sent message data to the array
+            sent_message_ref.push(sent_message_data)
+
+            logging.info(
+                f"Successfully updated sent message details for message ID {message_id}.")
 
         except Exception as e:
             logging.error(
-                f"Error reposting message {message_id} to {channel_id}: {e}")
+                f"Error reposting message {message_id} to channel {channel_id}: {e}")
 
 
 # Handle delete message
@@ -599,8 +652,17 @@ async def delete_message(message_id, message, admins, delete_from_firebase=False
     message_details = messages_ref.child(message_id).get()
 
     if message_details is None:
+        # If the message is not found in Firebase, we should clean it up from the database
+        logging.warning(f"Message ID {message_id} not found in the database.")
+
+        # Optionally delete the message ID from Firebase (if delete_from_firebase is True)
+        if delete_from_firebase:
+            messages_ref.child(message_id).delete()
+            logging.info(
+                f"Deleted missing message ID: {message_id} from Firebase.")
+
         if message:  # Only reply if message is not None
-            await message.reply("Message not found in the database. Please check the message ID.")
+            await message.reply(f"Message ID {message_id} was not found in the database. It has been removed.")
         return
 
     sent_message_ids = message_details.get('sent_message_ids', {})
@@ -624,8 +686,8 @@ async def delete_message(message_id, message, admins, delete_from_firebase=False
     if message:  # Only reply if message is not None
         await message.reply("Message has been deleted from the channel.")
 
+    # If the delete_from_firebase flag is set to True, remove the message from Firebase
     if delete_from_firebase:
-        # Optionally remove it from Firebase if you want it to stop reposting
         messages_ref.child(message_id).delete()
         logging.info(f"Deleted message ID: {message_id} from the database.")
 
@@ -743,3 +805,84 @@ async def manual_delete_all_messages(message, bot, channel_ids):
             logging.error(
                 f"Error processing Firebase message ID {message_id}: {e}")
             await message.reply(f"Error processing Firebase message ID {message_id}. Check the logs for details.")
+
+
+async def display_product_ids(message: types.Message, admins):
+    # Check if the user is an admin
+    username = message.from_user.username
+    if username not in admins:
+        await message.reply("Access Forbidden. You are not authorized to view posted messages.")
+        return
+
+    # Reference to the "products" collection in Firebase
+    product_ref = db.reference("products")
+    products = product_ref.get()
+
+    if not products:
+        await message.reply("No products found in the database.")
+        return
+
+    # Start building the message to display
+    response_message = "Product List:\n\n"
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+
+    for product_id, product_details in products.items():
+        # Ensure product details exist (name and price should be provided)
+        product_name = product_details.get("name", "N/A")
+        product_price = product_details.get("price", "N/A")
+
+        # Add the product details to the response message
+        response_message += f"ID: {product_id}\n"
+        response_message += f"Name: {product_name}\n"
+        response_message += f"Price: {product_price}\n\n"
+
+        # Create a delete button for this product
+        delete_button = types.InlineKeyboardButton(
+            text=f"Delete {product_name}",  # Button text with product name
+            # Callback data containing product_id
+            callback_data=f"delete_product_{product_id}"
+        )
+        keyboard.add(delete_button)
+
+    # Send the formatted product list along with the delete buttons
+    await message.reply(response_message, reply_markup=keyboard)
+
+
+async def delete_product(callback_query: types.CallbackQuery, admins):
+    # Extract the product ID from callback data
+    callback_data = callback_query.data
+    if callback_data.startswith("delete_product_"):
+        product_id = callback_data[len("delete_product_"):]
+
+        # Reference to the "products" collection in Firebase
+        product_ref = db.reference("products")
+
+        # Attempt to get the product details first
+        product_details = product_ref.child(product_id).get()
+
+        if not product_details:
+            await callback_query.answer(f"Product with ID {product_id} not found.", show_alert=True)
+            return
+
+        # Check if the user is an admin
+        username = callback_query.from_user.username
+        if username not in admins:
+            await callback_query.answer("You are not authorized to delete this product.", show_alert=True)
+            return
+
+        # Delete the product from the database
+        product_ref.child(product_id).delete()
+
+        # Inform the admin that the product has been deleted
+        await callback_query.answer(f"Product {product_id} has been deleted.")
+
+        # Optionally, delete the product from the message by updating it (or resend the message)
+        await callback_query.message.edit_text(
+            f"Product {product_id} deleted successfully.\n\n" +
+            "The list has been updated.", reply_markup=None
+        )
+
+        # Call display_product_ids to refresh the list
+        await display_product_ids(callback_query.message, admins)
+    else:
+        await callback_query.answer("Invalid action.", show_alert=True)

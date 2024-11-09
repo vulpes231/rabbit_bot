@@ -15,7 +15,7 @@ Follow the steps below to set up the bot and get it running.
 First, clone this repository to your local machine:
 
 ```bash
-git clone https://github.com/yourusername/your-python-bot.git
+git clone https://github.com/vulpes231/rabbit-bot.git
 cd your-python-bot
 ```
 

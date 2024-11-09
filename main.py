@@ -2,10 +2,11 @@ import os
 from dotenv import load_dotenv
 import logging
 import asyncio
+from functools import partial
 import firebase_admin
 from firebase_admin import credentials, db
 from aiogram import Bot, Dispatcher, executor, types
-from command import start, display_profile, add_product, display_categories, display_products_by_category, handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method,  routine_message, get_product_status, get_all_posted_messages, handle_delete_message, delete_message, delete_due_messages, manual_delete_all_messages
+from command import start, display_profile, add_product, display_categories, display_products_by_category, handle_category_selection, process_order, get_user_orders, show_faqs_tips, show_help, fund_wallet, handle_manual_method, handle_auto_method,  routine_message, get_product_status, get_all_posted_messages, handle_delete_message, delete_message, delete_due_messages, manual_delete_all_messages, display_product_ids, delete_product
 
 # Load environment credentials
 load_dotenv()
@@ -34,11 +35,13 @@ dp = Dispatcher(bot)
 
 # User commands
 dp.register_message_handler(
-    lambda message: start(message, ref), commands=['start'])
+    lambda message: start(message), commands=['start'])
 dp.register_message_handler(
     display_profile, lambda message: message.text == "Profile")
 dp.register_message_handler(lambda message: add_product(
     message, ADMINS), commands=['addproduct'])
+dp.register_message_handler(lambda message: display_product_ids(
+    message, ADMINS), commands=['productids'])
 dp.register_message_handler(lambda message: routine_message(
     message, ADMINS), commands=['addcontent'])
 dp.register_message_handler(lambda message: manual_delete_all_messages(
@@ -55,6 +58,10 @@ dp.register_callback_query_handler(
     handle_category_selection, lambda c: c.data.startswith("category_"))
 dp.register_callback_query_handler(
     process_order, lambda c: c.data.startswith("order_"))
+dp.register_callback_query_handler(
+    partial(delete_product, admins=ADMINS),  # Pass ADMINS here
+    lambda c: c.data.startswith("delete_product_")
+)
 dp.register_message_handler(
     get_user_orders, lambda message: message.text == "Orders")
 dp.register_message_handler(
