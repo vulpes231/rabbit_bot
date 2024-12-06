@@ -3,6 +3,8 @@ from firebase_admin import db
 import asyncio
 import time
 import logging
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 
 # Configure logging
 logging.basicConfig(
@@ -119,8 +121,8 @@ async def add_product(message: types.Message, admin_usernames):
     await message.reply(f"Product '{name}' added successfully!")
 
 
-# display producxt by categories
-async def display_categories(message: types.Message):
+# display producxt
+async def display_products(message: types.Message):
     # Retrieve all products from the database
     products_ref = db.reference("products")
     products_data = products_ref.get()
@@ -129,69 +131,30 @@ async def display_categories(message: types.Message):
         await message.reply("No products available.")
         return
 
-    # Extract categories from products
-    categories = set()
-    for product in products_data.values():
-        if 'category' in product:
-            categories.add(product['category'])
+    # Create an inline keyboard with product names as buttons
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    for product_id, product in products_data.items():
+        product_name = product.get('name')
+        keyboard.add(InlineKeyboardButton(
+            text=product_name, callback_data=f"product_{product_name}"))
 
-    if not categories:
-        await message.reply("No categories available.")
-        return
-
-    # Create inline keyboard with category buttons
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
-    for category in categories:
-        keyboard.add(types.InlineKeyboardButton(
-            text=category, callback_data=f"category_{category}"))
-
-    await message.reply("Select a category:", reply_markup=keyboard)
+    await message.reply("Select a product:", reply_markup=keyboard)
 
 
-# handle category selection
-async def handle_category_selection(callback_query: types.CallbackQuery):
-    category = callback_query.data.split("_", 1)[1]
-    await display_products_by_category(callback_query.message, category)
+async def show_product_details(callback_query: types.CallbackQuery):
+    # Extract the product name from the callback data
+    product_name = callback_query.data.split("_", 1)[1]
 
-
-# display products
-async def display_products_by_category(message: types.Message, category: str):
-    # Retrieve products in the selected category from the database
+    # Retrieve all products from the database
     products_ref = db.reference("products")
-    products_data = products_ref.get() or {}
+    products_data = products_ref.get()
 
-    # Filter products by the selected category
-    products_in_category = {
-        name: details for name, details in products_data.items()
-        if details.get('category') == category
-    }
-
-    if not products_in_category:
-        await message.reply(f"No products available in the '{category}' category.")
-        return
-
-    # Create a message with products and purchase buttons
-    product_messages = []
-    buttons = []
-    for product_name, product_details in products_in_category.items():
-        name = product_details.get('name', product_name)
-        price = product_details.get('price')
-        available = product_details.get('available')
-        availability_status = "In Stock ✅" if available else "Sold Out ❌"
-
-        product_message = f"• {name} | ${price} | {category} | {availability_status}"
-        product_messages.append(product_message)
-
-        # Add inline button for ordering
-        buttons.append(types.InlineKeyboardButton(
-            text=f"Order {name}", callback_data=f"order_{name}_{price}"))
-
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
-    keyboard.add(*buttons)
-
-    await message.reply("Available products:\n" + "\n".join(product_messages), reply_markup=keyboard)
-
-# place order
+    # Find the selected product details
+    for product_id, product in products_data.items():
+        if product.get('name') == product_name:
+            description = "\n".join(product.get('descriptions', []))
+            await callback_query.message.reply(f"**{product_name}**\n\n{description}")
+            break
 
 
 async def process_order(callback_query: types.CallbackQuery):
