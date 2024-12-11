@@ -121,7 +121,6 @@ async def add_product(message: types.Message, admin_usernames):
     await message.reply(f"Product '{name}' added successfully!")
 
 
-# display producxt
 async def display_products(message: types.Message):
     # Retrieve all products from the database
     products_ref = db.reference("products")
@@ -153,7 +152,23 @@ async def show_product_details(callback_query: types.CallbackQuery):
     for product_id, product in products_data.items():
         if product.get('name') == product_name:
             description = "\n".join(product.get('descriptions', []))
-            await callback_query.message.reply(f"**{product_name}**\n\n{description}")
+            # Assume each product has a price field
+            product_price = product.get('price', 'N/A')
+
+            # Prepare the product details message with the 'Purchase' button
+            message_text = f"**{product_name}**\n\n{description}\n\nPrice: {product_price}"
+
+            # Replace with the admin's Telegram username
+            admin_chat_url = f"https://t.me/bishopzeit"
+
+            # Add the 'Purchase' button
+            keyboard = InlineKeyboardMarkup(row_width=1)
+            purchase_button = InlineKeyboardButton(
+                text="Purchase", url=admin_chat_url
+            )
+            keyboard.add(purchase_button)
+
+            await callback_query.message.reply(message_text, reply_markup=keyboard)
             break
 
 
